@@ -1,0 +1,10 @@
+django==2.1
+djangorestframework==3.9.4
+django-cors-headers==3.0.2
+gunicorn==19.9.0
+psycopg2-binary
+django-mptt==0.9.0
+djangorestframework-expiring-authtoken
+oss2
+djangorestframework-bulk==0.2.1
+munch==2.2.0

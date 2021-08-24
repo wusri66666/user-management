@@ -1,0 +1,52 @@
+stages:
+  - build
+  - test
+
+build-dev:
+  stage: build
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - docker build --pull -t "$CI_REGISTRY_IMAGE:dev2" .
+    - docker push "$CI_REGISTRY_IMAGE:dev2"
+    - docker build --pull -t "$CI_REGISTRY_IMAGE:alpha" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
+    - ls_date=`date +'%Y-%m-%d %H:%M:%S'`
+    - p="{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"cattle.io/timestamp\":\"${ls_date}\"}}}}}"
+    # 注意每个服务对应的namespace 和deployment 名
+    - rancher kubectl --namespace=aiot-be-dev-v2 patch deployment aiot-server-system-v2 -p "$p"
+    - curl 'https://oapi.dingtalk.com/robot/send?access_token=ffc0e238fd0fa0a299cd99df51ccf35f5e014860affe138773c9ce88e82d25ba' -H 'Content-Type:application/json' -d '{"msgtype":"text","text":{"content":"'"$CI_PROJECT_NAME"'项目，'"$CI_COMMIT_REF_NAME"' 更新成功"}}'
+  only:
+    - dev2
+    - alpha
+
+failure:
+  script:
+    - curl 'https://oapi.dingtalk.com/robot/send?access_token=ffc0e238fd0fa0a299cd99df51ccf35f5e014860affe138773c9ce88e82d25ba' -H 'Content-Type:application/json' -d '{"msgtype":"text","text":{"content":"'"$CI_PROJECT_NAME"'项目，'"$CI_COMMIT_REF_NAME"'更新失败"}}'
+  when: on_failure
+
+# 合并前代码检测
+enable_merge:
+  stage: test
+  script:
+    - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_TOKEN
+    - sleep 30
+    - curl http://api.dev.smartahc.com/sonarapi/sonar/?projectKey=$CI_PROJECT_NAME\&branch=$CI_COMMIT_REF_NAME
+    - if [  $(curl http://sonar.smartahc.com:9000/api/qualitygates/project_status?projectKey=$CI_PROJECT_NAME | grep -c "\"projectStatus\":{\"status\":\"ERROR\"") -gt 0 ]; then exit 1; fi
+  only:
+    - merge_requests
+
+build-tag:
+  # Official docker image.
+  image: docker:latest
+  stage: build
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - docker build --pull -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+    - curl 'https://oapi.dingtalk.com/robot/send?access_token=ffc0e238fd0fa0a299cd99df51ccf35f5e014860affe138773c9ce88e82d25ba' -H 'Content-Type:application/json' -d '{"msgtype":"text","text":{"content":"'"$CI_PROJECT_NAME"' 项目，'"$CI_COMMIT_REF_NAME"' 更新成功"}}'
+  only:
+    - tags
